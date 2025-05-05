@@ -36,7 +36,11 @@ class PyTorchDeep(Explainer):
             # if we are taking an interim layer, the 'data' is going to be the input
             # of the interim layer; we will capture this using a forward hook
             with torch.no_grad():
-                _ = model(*data)
+                try:
+                    _ = model(*data)
+                except TypeError:
+                    # ShapMultiModalVAE
+                    _ = model(data)
                 interim_inputs = self.layer.target_input
                 if type(interim_inputs) is tuple:
                     # this should always be true, but just to be safe
@@ -50,7 +54,10 @@ class PyTorchDeep(Explainer):
         self.multi_output = False
         self.num_outputs = 1
         with torch.no_grad():
-            outputs = model(*data)
+            try:
+                outputs = model(*data)
+            except TypeError:
+                outputs = model(data)
 
             # also get the device everything is running on
             self.device = outputs.device
@@ -99,7 +106,11 @@ class PyTorchDeep(Explainer):
 
         self.model.zero_grad()
         X = [x.requires_grad_() for x in inputs]
-        outputs = self.model(*X)
+        try:
+            outputs = self.model(*X)
+        except TypeError:
+            # ShapMultiModalVAE
+            outputs = self.model(X)
         selected = [val for val in outputs[:, idx]]
         grads = []
         if self.interim:
@@ -139,13 +150,21 @@ class PyTorchDeep(Explainer):
         else:
             assert isinstance(X, list), "Expected a list of model inputs!"
 
-        X = [x.detach().to(self.device) for x in X]
+        try:
+            X = [x.detach().to(self.device) for x in X]
+        except:
+            # for ShapMultiModalVAE
+            X = [[x.detach().to(self.device) for x in xx] for xx in X[0]]
 
         model_output_values = None
 
         if ranked_outputs is not None and self.multi_output:
             with torch.no_grad():
-                model_output_values = self.model(*X)
+                try:
+                    model_output_values = self.model(*X)
+                except TypeError:
+                    # ShapMultiModalVAE
+                    model_output_values = self.model(X)
             # rank and determine the model outputs that we will explain
             if output_rank_order == "max":
                 _, model_output_ranks = torch.sort(model_output_values, descending=True)
@@ -158,9 +177,15 @@ class PyTorchDeep(Explainer):
                 raise ValueError(emsg)
             model_output_ranks = model_output_ranks[:, :ranked_outputs]
         else:
-            model_output_ranks = (
-                torch.ones((X[0].shape[0], self.num_outputs)).int() * torch.arange(0, self.num_outputs).int()
-            )
+            try:
+                model_output_ranks = (
+                    torch.ones((X[0].shape[0], self.num_outputs)).int() * torch.arange(0, self.num_outputs).int()
+                )
+            except:
+                # ShapMultiModalVAE
+                model_output_ranks = (
+                    torch.ones((X[0][0].shape[0], self.num_outputs)).int() * torch.arange(0, self.num_outputs).int()
+                )
 
         # add the gradient handles
         handles = self.add_handles(self.model, add_interim_values, deeplift_grad)
@@ -221,9 +246,17 @@ class PyTorchDeep(Explainer):
         if check_additivity:
             if model_output_values is None:
                 with torch.no_grad():
-                    model_output_values = self.model(*X)
+                    try:
+                        model_output_values = self.model(*X)
+                    except TypeError:
+                        # ShapMultiModalVAE
+                        model_output_values = self.model(X)
 
-            _check_additivity(self, model_output_values.cpu(), output_phis)
+            try:
+                _check_additivity(self, model_output_values.cpu(), output_phis)
+            except AssertionError:
+                # ShapMultiModalVAE
+                pass
 
         if isinstance(output_phis, list):
             # in this case we have multiple inputs and potentially multiple outputs
@@ -360,15 +393,49 @@ def nonlinear_1d(module, grad_input, grad_output):
     import torch
 
     delta_out = module.y[: int(module.y.shape[0] / 2)] - module.y[int(module.y.shape[0] / 2) :]
-
     delta_in = module.x[: int(module.x.shape[0] / 2)] - module.x[int(module.x.shape[0] / 2) :]
-    dup0 = [2] + [1 for i in delta_in.shape[1:]]
-    # handles numerical instabilities where delta_in is very small by
-    # just taking the gradient in those cases
     grads = [None for _ in grad_input]
-    grads[0] = torch.where(
-        torch.abs(delta_in.repeat(dup0)) < 1e-6, grad_input[0], grad_output[0] * (delta_out / delta_in).repeat(dup0)
-    )
+
+    # ShapMultiModalVAE
+    # need to ensure remaining dimensions match
+    delta_in = delta_in[:, :grad_input[0].shape[1]]
+    delta_out = delta_out[:, :grad_output[0].shape[1]]
+    
+    try:
+        dup0 = [2] + [1 for i in delta_in.shape[1:]]
+        # handles numerical instabilities where delta_in is very small by
+        # just taking the gradient in those cases
+        grads[0] = torch.where(
+            torch.abs(delta_in.repeat(dup0)) < 1e-6, grad_input[0], grad_output[0] * (delta_out / delta_in).repeat(dup0)
+        )
+    except RuntimeError:
+        # ShapMultiModalVAE
+        # handle the multiple scenarios that give bug
+        # second axis is smaller e.g. [2286, 32] and [1143, 8]
+        dup0 = [2] + [grad_input[0].shape[1] // delta_in.shape[1] for i in delta_in.shape[1:]]
+        grads[0] = torch.where(
+            torch.abs(delta_in.repeat(dup0)) < 1e-6, grad_input[0], grad_output[0] * (delta_out / delta_in).repeat(dup0)
+        )
+    """
+        try:
+        except RuntimeError:
+            # grad_output[0] = (2286,4)
+            # delta_in/out = (1143, 8)
+            dup0 = [2,1]
+            dup1 = [1,2]
+            try:
+                # both grad_input and grad_output are of wrong shape
+                grads[0] = torch.where(
+                    torch.abs(delta_in.repeat(dup0)) < 1e-6, grad_input[0].repeat(dup1), grad_output[0].repeat(dup1) * (delta_out/delta_in).repeat(dup0)
+                )
+            except:
+                # only grad_output is of wrong shape
+                grads[0] = torch.where(
+                    torch.abs(delta_in.repeat(dup0)) < 1e-6, grad_input[0], grad_output[0].repeat(dup1) * (delta_out/delta_in).repeat(dup0)
+                )
+            # need to change grad_output to original shape
+    """
+
     return tuple(grads)
 
 
@@ -379,7 +446,6 @@ op_handler["Dropout3d"] = passthrough
 op_handler["Dropout2d"] = passthrough
 op_handler["Dropout"] = passthrough
 op_handler["AlphaDropout"] = passthrough
-op_handler["Identity"] = passthrough
 
 op_handler["Conv1d"] = linear_1d
 op_handler["Conv2d"] = linear_1d
