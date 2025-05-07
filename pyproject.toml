@@ -6,12 +6,12 @@ requires = ["setuptools>=61.0", "setuptools-scm>=8.0", "numpy>=2.0", "packaging>
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "shap"
-description = "A unified approach to explain the output of any machine learning model."
-readme = "README.md"
+name = "shap-0.47.3.dev8-offline-fork-for-myevae"
+version = "0.0.1"
+description = "An offline fork of https://pypi.org/project/shap/, which exists to allow SHAP to be run on MyeVAE (https://pypi.org/project/myevae/)"
 license = {text = "MIT License"}
 authors = [
-  {name = "Scott Lundberg", email = "slund1@cs.washington.edu"},
+  {name = "Chang Jia Geng", email = "changjiageng@u.nus.edu"},
 ]
 requires-python = ">=3.9"
 dependencies = [
@@ -27,22 +27,8 @@ dependencies = [
   'typing-extensions',
 ]
 classifiers = [
-  "Operating System :: Microsoft :: Windows",
-  "Operating System :: POSIX",
-  "Operating System :: Unix",
-  "Operating System :: MacOS",
-  "Programming Language :: Python :: 3.9",
-  "Programming Language :: Python :: 3.10",
-  "Programming Language :: Python :: 3.11",
-  "Programming Language :: Python :: 3.12",
-  "Intended Audience :: Information Technology",
-  "Intended Audience :: Science/Research",
-  "Topic :: Scientific/Engineering",
-  "Topic :: Scientific/Engineering :: Artificial Intelligence",
-  "Development Status :: 5 - Production/Stable",
   "License :: OSI Approved :: MIT License",
 ]
-dynamic = ["version"]
 
 [project.optional-dependencies]
 plots = ["matplotlib", "ipython"]
@@ -103,10 +89,6 @@ test_notebooks = [
   "keras",
 ]
 
-[project.urls]
-Repository = 'http://github.com/shap/shap'
-Documentation = 'https://shap.readthedocs.io/en/latest/index.html'
-"Release Notes" = 'https://shap.readthedocs.io/en/latest/release_notes.html'
 
 [tool.mypy]
 check_untyped_defs = true
